@@ -1,4 +1,5 @@
 import 'dart:developer';
+import 'dart:ui';
 
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter_callkit_incoming/entities/android_params.dart';
@@ -7,20 +8,23 @@ import 'package:flutter_callkit_incoming/entities/call_kit_params.dart';
 import 'package:flutter_callkit_incoming/entities/notification_params.dart';
 import 'package:flutter_callkit_incoming/flutter_callkit_incoming.dart';
 import 'package:uuid/uuid.dart';
+import 'package:voip_calling/app/app.dart';
 import 'package:voip_calling/app/app_router.dart';
 
+@pragma('vm:entry-point')
 Future<void> _handleBackgroundMessage(RemoteMessage message) async {
   await handleMessage(message);
 }
 
 Future<void> handleMessage(RemoteMessage message) async {
+  log('message incoming! ${message.data}');
   if (message.data['type'] == 'incoming_call') {
     await FlutterCallkitIncoming.showCallkitIncoming(
       CallKitParams(
         id: const Uuid().v4(),
         textAccept: 'Accept',
         textDecline: 'Decline',
-        handle: 'Touchcom AS',
+        handle: message.data['handle'] as String,
         duration: 30000,
         android: const AndroidParams(
           incomingCallNotificationChannelName: 'calling',
@@ -30,7 +34,7 @@ Future<void> handleMessage(RemoteMessage message) async {
           showNotification: false,
           isShowCallback: false,
         ),
-        nameCaller: 'John Smith',
+        nameCaller: message.data['nameCaller'] as String,
       ),
     );
   }
@@ -79,6 +83,10 @@ Future<void> _handleCallDeclined(CallEvent? callEvent) async {
 
 Future<void> _handleCallAccepted(CallEvent? callEvent) async {
   log('handleCallAccepted');
+  final isolateNameServer =
+      IsolateNameServer.lookupPortByName(notificationPortName);
+  log('isolateNameServer: $isolateNameServer');
+  isolateNameServer?.send(callEvent?.body);
 }
 
 Future<void> _handleIncomingCall(CallEvent? callEvent) async {
@@ -97,11 +105,25 @@ class NotificationRepository {
 
   Future<void> initializeFirebaseMessaging() async {
     await listenToIncomingCalls();
+    await FirebaseMessaging.instance.requestPermission(
+      criticalAlert: true,
+    );
     FirebaseMessaging.onBackgroundMessage(_handleBackgroundMessage);
-    FirebaseMessaging.onMessage.listen(handleMessage);
-    FirebaseMessaging.onMessageOpenedApp.listen(handleMessage);
+    FirebaseMessaging.onMessage.listen(
+      (message) {
+        log('onMessage');
+        handleMessage(message);
+      },
+    );
+    FirebaseMessaging.onMessageOpenedApp.listen(
+      (message) {
+        log('onMessageOpenedApp');
+        handleMessage(message);
+      },
+    );
     await FirebaseMessaging.instance.getInitialMessage().then((initialMessage) {
       if (initialMessage != null) {
+        log('initialMessage ${initialMessage.data}');
         handleMessage(initialMessage);
       }
     });
